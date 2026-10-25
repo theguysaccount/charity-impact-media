@@ -20,10 +20,11 @@ concurrency:
   cancel-in-progress: false
 
 env:
-  CIM_BASE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+  CIM_BASE_URL: ${{ vars.CIM_SITE_URL || format('https://{0}.github.io/{1}', github.repository_owner, github.event.repository.name) }}
   CIM_REPO: ${{ github.repository }}
   CIM_SUPPORT_URL: ${{ vars.CIM_SUPPORT_URL }}   # optional: sponsor or donation link (the money slot)
   CIM_GOATCOUNTER: ${{ vars.CIM_GOATCOUNTER }}   # optional: https://<code>.goatcounter.com/count
+  CIM_GOOGLE_VERIFY: ${{ vars.CIM_GOOGLE_VERIFY }}   # optional: Search Console HTML-tag token
   GH_TOKEN: ${{ github.token }}
 
 jobs:

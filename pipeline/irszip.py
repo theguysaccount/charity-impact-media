@@ -13,6 +13,7 @@ across 05A.zip and 05B.zip, so callers look up a filename in every sibling zip.
 import struct
 import zlib
 
+import inflate64
 from common import http
 
 EOCD_SIG = b"PK\x05\x06"
@@ -53,7 +54,7 @@ def central_directory(url):
     out = {}
     p = 0
     while p + 46 <= len(cd):
-        (sig, _, _, _, method, _, _, _, csize, usize, nlen, xlen, clen, _, _, _, off) = struct.unpack(
+        (sig, _, _, _, method, _, _, crc, csize, usize, nlen, xlen, clen, _, _, _, off) = struct.unpack(
             "<IHHHHHHIIIHHHHHII", cd[p:p + 46])
         if sig != CD_SIG:
             break
@@ -73,13 +74,13 @@ def central_directory(url):
                         off = vals.pop(0)
                     break
                 q += 4 + hlen
-        out[name.rsplit("/", 1)[-1]] = (off, csize, usize, method)
+        out[name.rsplit("/", 1)[-1]] = (off, csize, usize, method, crc)
         p += 46 + nlen + xlen + clen
     return out
 
 
 def read_member(url, entry):
-    off, csize, usize, method = entry
+    off, csize, usize, method = entry[:4]
     # Local header is 30 bytes + name + extra; the extra field can differ from the
     # central directory's, so read a little more than needed and parse it.
     blob = _range(url, off, off + 30 + 512 + csize)
@@ -91,10 +92,16 @@ def read_member(url, entry):
         blob += _range(url, off + len(blob), off + start + csize - 1)
     data = blob[start:start + csize]
     if method == 0:
-        return data
-    if method == 8:
-        return zlib.decompressobj(-15).decompress(data)
-    raise RuntimeError(f"{url}: unsupported compression method {method}")
+        out = data
+    elif method == 8:
+        out = zlib.decompressobj(-15).decompress(data)
+    elif method == 9:  # Deflate64: zlib can't, so a pure-Python inflater does
+        out = inflate64.inflate(data, deflate64=True)
+    else:
+        raise RuntimeError(f"{url}: unsupported compression method {method}")
+    if len(entry) > 4 and zlib.crc32(out) & 0xFFFFFFFF != entry[4]:
+        raise RuntimeError(f"{url}: CRC mismatch at {off}")
+    return out
 
 
 def batch_zip_urls(base, batch_id):

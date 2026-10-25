@@ -20,6 +20,7 @@ sys.path.insert(0, os.path.join(ROOT, "pipeline"))
 sys.path.insert(0, HERE)
 
 import build_data  # noqa: E402
+import inflate64  # noqa: E402
 import irszip  # noqa: E402
 import render  # noqa: E402
 import sources  # noqa: E402
@@ -144,6 +145,72 @@ class IrsZipTest(unittest.TestCase):
             self.assertEqual(parse(irszip.read_member("mem://zip", cd["2026_public.xml"]))["ein"], "123456789")
         finally:
             irszip._range, irszip.zip_size = orig_range, orig_size
+
+
+class _Bits:
+    """Deflate bit writer: values LSB-first, Huffman codes MSB-first."""
+    def __init__(self):
+        self.acc, self.n, self.out = 0, 0, bytearray()
+
+    def put(self, value, nbits):
+        self.acc |= value << self.n
+        self.n += nbits
+        while self.n >= 8:
+            self.out.append(self.acc & 0xFF)
+            self.acc >>= 8
+            self.n -= 8
+
+    def huff(self, code, length):
+        self.put(int(format(code, f"0{length}b")[::-1], 2), length)
+
+    def fixed(self, sym):
+        if sym < 144:
+            self.huff(0x30 + sym, 8)
+        elif sym < 256:
+            self.huff(0x190 + sym - 144, 9)
+        elif sym < 280:
+            self.huff(sym - 256, 7)
+        else:
+            self.huff(0xC0 + sym - 280, 8)
+
+    def bytes(self):
+        return bytes(self.out) + (bytes([self.acc & 0xFF]) if self.n else b"")
+
+
+class Inflate64Test(unittest.TestCase):
+    def test_plain_deflate_matches_zlib(self):
+        import random
+        import zlib
+        rnd = random.Random(7)
+        for size in (0, 1, 100, 5000, 200_000):
+            words = [b"<Amt>", b"</Amt>", b"GRANT", b"PROGRAM", b"FOUNDATION", b" ", b"\n"]
+            data = b"".join(rnd.choice(words) + str(rnd.randint(0, 99999)).encode() for _ in range(size // 8))[:size]
+            for level in (1, 6, 9):
+                c = zlib.compressobj(level, zlib.DEFLATED, -15)
+                raw = c.compress(data) + c.flush()
+                self.assertEqual(inflate64.inflate(raw, deflate64=False), data)
+
+    def test_deflate64_long_length_and_far_distance(self):
+        history = bytes(i % 251 for i in range(33_000))
+        bw = _Bits()
+        bw.put(1, 1)   # final block
+        bw.put(1, 2)   # fixed Huffman
+        for b in history:
+            bw.fixed(b)
+        bw.fixed(285)      # Deflate64: length 3 + 16 extra bits
+        bw.put(1000, 16)
+        bw.huff(30, 5)     # Deflate64: distance base 32769 + 14 extra bits
+        bw.put(5, 14)
+        bw.fixed(256)
+        want = bytearray(history)
+        start = len(want) - (32769 + 5)
+        for i in range(1003):
+            want.append(want[start + i])
+        self.assertEqual(inflate64.inflate(bw.bytes(), deflate64=True), bytes(want))
+
+    def test_corrupt_input_raises(self):
+        with self.assertRaises(inflate64.Error):
+            inflate64.inflate(b"\xff\xff\xff", deflate64=True)
 
 
 class GuardTest(unittest.TestCase):

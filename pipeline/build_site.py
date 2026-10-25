@@ -144,7 +144,7 @@ def main():
     stats, charities = data["stats"], data["charities"]
     ctx = R.Ctx(base_url, env("CIM_REPO", "theguysaccount/charity-impact-media"), asset_version(stats),
                 support_url=env("CIM_SUPPORT_URL"), goatcounter=env("CIM_GOATCOUNTER"), built=stats["built"],
-                n=stats["charities"])
+                n=stats["charities"], google_verify=env("CIM_GOOGLE_VERIFY"))
     out = env("CIM_OUT", os.path.join(ROOT, "dist"))
     if os.path.exists(out):
         shutil.rmtree(out)

@@ -118,7 +118,7 @@ def period(y):
 # --------------------------------------------------------------------------
 
 class Ctx:
-    def __init__(self, base_url, repo, asset_v, support_url="", goatcounter="", built=None, n=0):
+    def __init__(self, base_url, repo, asset_v, support_url="", goatcounter="", built=None, n=0, google_verify=""):
         u = urllib.parse.urlparse(base_url.rstrip("/"))
         self.origin = f"{u.scheme}://{u.netloc}"
         self.base = u.path.rstrip("/")  # e.g. /charity-impact-media
@@ -129,6 +129,7 @@ class Ctx:
         self.goatcounter = goatcounter
         self.built = built or datetime.date.today().isoformat()
         self.n = n
+        self.google_verify = google_verify
 
     def u(self, path):
         return f"{self.base}{path}"
@@ -156,6 +157,8 @@ def layout(ctx, *, title, description, path, body, og_image=None, jsonld=None, n
     for block in (jsonld or []):
         ld += '<script type="application/ld+json">' + json.dumps(block, ensure_ascii=False, separators=(",", ":")).replace("</", "<\\/") + "</script>"
     gc = f'<meta name="cim-gc" content="{esc(ctx.goatcounter)}">' if ctx.goatcounter else ""
+    if ctx.google_verify and path == "/":
+        gc += f'<meta name="google-site-verification" content="{esc(ctx.google_verify)}">'
     support = (f' · <a href="{esc(ctx.support_url)}" rel="noopener" data-ev="support">Support this project</a>'
                if ctx.support_url else "")
     return f"""<!doctype html>
