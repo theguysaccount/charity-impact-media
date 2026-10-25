@@ -1,0 +1,110 @@
+# Weekly: check the public sources (GivingTuesday 990 Data Lake indexes, IRS monthly e-file
+# indexes, IRS EO Business Master File, this pipeline's data code). If anything changed,
+# fetch only the new filings, rebuild, test, guard against the last good release, publish a
+# data release and redeploy the site.
+# Fails safe: any failed step stops before publishing, and the live site keeps the last release.
+name: Refresh data
+
+on:
+  schedule:
+    - cron: "17 6 * * 1"
+  workflow_dispatch:
+    inputs:
+      force:
+        description: Rebuild even if the sources are unchanged
+        type: boolean
+        default: false
+      full:
+        description: Ignore the parse cache and re-fetch every filing (about an hour)
+        type: boolean
+        default: false
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: refresh
+  cancel-in-progress: false
+
+env:
+  CIM_BASE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+  CIM_REPO: ${{ github.repository }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    timeout-minutes: 300
+    outputs:
+      changed: ${{ steps.check.outputs.changed }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Previous release
+        run: |
+          mkdir -p prev
+          gh release download --repo "$GITHUB_REPOSITORY" --dir prev \
+            --pattern sources.json --pattern stats.json --pattern filings.jsonl.gz --pattern first_seen.json.gz \
+            || echo "no previous release"
+          ls -la prev
+      - name: Check sources
+        id: check
+        run: python3 pipeline/sources.py check prev/sources.json | tee -a "$GITHUB_OUTPUT"
+      - name: Stop when nothing changed
+        if: steps.check.outputs.changed != 'true' && inputs.force != true
+        run: echo "Sources unchanged since the last release; nothing to rebuild."
+      - name: Download inputs
+        if: steps.check.outputs.changed == 'true' || inputs.force == true
+        run: python3 pipeline/sources.py download
+      - name: Select charities and filings
+        if: steps.check.outputs.changed == 'true' || inputs.force == true
+        run: python3 pipeline/select_filings.py
+      - name: Fetch and parse new filings
+        if: steps.check.outputs.changed == 'true' || inputs.force == true
+        run: |
+          if [ "${{ inputs.full }}" != "true" ] && [ -f prev/filings.jsonl.gz ]; then cp prev/filings.jsonl.gz data/work/; fi
+          python3 pipeline/fetch_filings.py --workers 32 --irs-workers 6
+      - name: Build data
+        if: steps.check.outputs.changed == 'true' || inputs.force == true
+        run: |
+          if [ -f prev/first_seen.json.gz ]; then cp prev/first_seen.json.gz data/work/; fi
+          python3 pipeline/crosslinks.py
+          python3 pipeline/replies.py
+          python3 pipeline/build_data.py
+      - name: Tests
+        if: steps.check.outputs.changed == 'true' || inputs.force == true
+        run: python3 -m unittest discover -s tests -v
+      - name: Build the site once (proves it builds before the data is published)
+        if: steps.check.outputs.changed == 'true' || inputs.force == true
+        run: python3 pipeline/build_site.py
+      - name: Guard against a broken rebuild
+        if: steps.check.outputs.changed == 'true' || inputs.force == true
+        run: python3 pipeline/sources.py guard prev/stats.json data/work/stats.json
+      - name: Publish data release
+        if: steps.check.outputs.changed == 'true' || inputs.force == true
+        run: |
+          cp dist/data/charities.csv data/work/charities.csv
+          gzip -9 -k -f data/work/charities.csv
+          tag="data-$(date -u +%Y%m%d-%H%M)"
+          python3 - <<'PY' > notes.md
+          import json
+          s = json.load(open("data/work/stats.json"))
+          f = json.load(open("data/work/fetch_stats.json"))
+          print(f"Form 990 breakdowns for {s['charities']:,} US public charities ({s['filings']:,} filings), built {s['built']}. Public domain (CC0).\n")
+          print(f"- Latest filing year: " + ", ".join(f"TY{y}: {n:,}" for y, n in s["latest_years"].items()))
+          print(f"- New filings fetched this run: {f.get('fetched', 0):,}; failed: {f.get('failed', 0):,}")
+          print(f"- With a functional-expense split: {s['with_functional']:,}")
+          print("- charities.csv.gz: one row per charity (latest filing). filings.jsonl.gz: every parsed filing (no personal names).")
+          PY
+          gh release create "$tag" --repo "$GITHUB_REPOSITORY" --title "Charity data $(date -u +%Y-%m-%d)" --notes-file notes.md --latest \
+            data/work/filings.jsonl.gz data/work/first_seen.json.gz data/work/coverage.json.gz data/work/sources.json \
+            data/work/stats.json data/work/fetch_stats.json data/work/charities.csv.gz
+      - name: Redeploy the site
+        if: steps.check.outputs.changed == 'true' || inputs.force == true
+        run: gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.ref_name }}"
+      - name: Keep scheduled workflows alive
+        if: always()
+        run: scripts/keepalive.sh refresh.yml

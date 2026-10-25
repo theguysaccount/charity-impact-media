@@ -1,0 +1,39 @@
+name: Correction
+description: A figure on a charity page doesn't match the organization's Form 990
+title: "Correction: "
+labels: ["correction"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Every figure on the site should match the organization's own Form 990. If one doesn't, that's our error, and the fix ships with the next weekly build.
+        **This issue is public.** Please don't include personal contact details.
+  - type: input
+    id: ein
+    attributes:
+      label: EIN
+      description: The charity's EIN, as shown on its page
+      placeholder: 12-3456789
+    validations:
+      required: true
+  - type: input
+    id: page
+    attributes:
+      label: Page
+      description: Link to the charity's page on the site
+  - type: textarea
+    id: figure
+    attributes:
+      label: Which figure is wrong
+      description: The section and the number, e.g. "Where $100 of spending went, programs $98.34, FY2025"
+    validations:
+      required: true
+  - type: textarea
+    id: filing
+    attributes:
+      label: What the filing says
+      description: The Form 990 part and line, and the amount there
+  - type: textarea
+    id: notes
+    attributes:
+      label: Anything else

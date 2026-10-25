@@ -1,0 +1,45 @@
+name: Right of reply
+description: Publish a response on behalf of an organization covered on the site
+title: "Reply: "
+labels: ["right-of-reply"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        If you work for an organization on this site, you can publish a response: context for a number, a program result, a change since the filing.
+        Responses are **public** and are linked from the organization's page as filed, without edits. Please don't include personal contact details.
+  - type: input
+    id: ein
+    attributes:
+      label: EIN
+      description: The organization's EIN, as shown on its page
+      placeholder: 12-3456789
+    validations:
+      required: true
+  - type: input
+    id: page
+    attributes:
+      label: Page
+      description: Link to the organization's page on the site
+  - type: input
+    id: role
+    attributes:
+      label: Your role at the organization (optional)
+  - type: textarea
+    id: response
+    attributes:
+      label: Response
+    validations:
+      required: true
+  - type: input
+    id: link
+    attributes:
+      label: Link to supporting material (optional)
+      description: An annual report, audited financial statements or a program evaluation
+  - type: checkboxes
+    id: public
+    attributes:
+      label: Publication
+      options:
+        - label: I understand this response is public and will be linked from the organization's page.
+          required: true

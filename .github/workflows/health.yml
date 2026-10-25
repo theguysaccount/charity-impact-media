@@ -1,0 +1,71 @@
+# Daily: check the live site like a visitor and a crawler would, and redeploy when new
+# right-of-reply or correction issues need linking. Weekly (Sunday): a self-test that runs
+# the full test suite and parses one freshly published filing from each source, to catch
+# IRS schema or source changes before the Monday refresh.
+name: Health
+
+on:
+  schedule:
+    - cron: "29 8 * * *"
+    - cron: "41 5 * * 0"
+  workflow_dispatch:
+    inputs:
+      selftest:
+        description: Also run the weekly self-test
+        type: boolean
+        default: true
+
+permissions:
+  contents: write
+  actions: write
+
+env:
+  CIM_BASE_URL: https://${{ github.repository_owner }}.github.io/${{ github.event.repository.name }}
+  CIM_REPO: ${{ github.repository }}
+  GH_TOKEN: ${{ github.token }}
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Live site check
+        run: python3 pipeline/healthcheck.py "$CIM_BASE_URL"
+      - name: Redeploy if right-of-reply or correction issues changed
+        run: |
+          mkdir -p data/work
+          python3 pipeline/replies.py
+          curl -sf "$CIM_BASE_URL/assets/replies.json" -o live_replies.json || echo '{}' > live_replies.json
+          if python3 -c "import json,sys; a=json.load(open('data/work/replies.json')); b=json.load(open('live_replies.json')); sys.exit(0 if a==b else 1)"; then
+            echo "Replies unchanged."
+          else
+            echo "Replies changed: redeploying."
+            gh workflow run deploy.yml --repo "$GITHUB_REPOSITORY" --ref "${{ github.ref_name }}"
+          fi
+
+  selftest:
+    if: github.event.schedule == '41 5 * * 0' || (github.event_name == 'workflow_dispatch' && inputs.selftest)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Unit tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Live source self-test (parse new filings from the data lake and the IRS)
+        run: CIM_LIVE=1 python3 -m unittest tests.test_live -v
+
+  keepalive:
+    if: always()
+    needs: [live, selftest]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Keep scheduled workflows alive
+        run: scripts/keepalive.sh health.yml

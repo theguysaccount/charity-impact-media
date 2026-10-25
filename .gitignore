@@ -1,0 +1,8 @@
+data/raw/
+data/work/
+data/dev/
+dist/
+__pycache__/
+*.pyc
+.DS_Store
+.claude/
