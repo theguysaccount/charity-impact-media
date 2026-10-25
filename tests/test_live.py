@@ -28,7 +28,7 @@ def tail_rows(url, nbytes=400_000):
         size = int(http(url, method="HEAD").headers["Content-Length"])
         head = irszip._range(url, 0, 4095).decode("utf-8", "replace").splitlines()[0]
         lines = irszip._range(url, max(0, size - nbytes), size - 1).decode("utf-8", "replace").splitlines()[1:]
-    except RuntimeError:
+    except (RuntimeError, TypeError, ValueError):  # no ranges, or no Content-Length on HEAD
         with http(url, timeout=300) as r:
             text = r.read().decode("utf-8", "replace").splitlines()
         head, lines = text[0], text[-3000:]

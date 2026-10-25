@@ -319,6 +319,7 @@ def main():
         "latest_years": {str(y): sum(1 for c in charities if c["cur"]["ty"] == y)
                          for y in sorted({c["cur"]["ty"] for c in charities})},
         "short_periods": sum(1 for c in charities for h in c["years"] if h["months"] and h["months"] < 11),
+        "irs_filings": sum(1 for c in charities for h in c["years"] if h["src"] == "irs"),
         "total_contributions": sum(contrib(c) for c in charities),
         "total_revenue": sum(c["latest"].get("rev_total") or 0 for c in charities),
         "total_expenses": sum(c["latest"].get("exp_total") or 0 for c in charities),

@@ -254,9 +254,12 @@ class GuardTest(unittest.TestCase):
             shutil.rmtree(d)
 
     def test_guard(self):
-        ok = {"charities": 25000, "filings": 140000, "with_functional": 24900, "fetch_failed_share": 0.0}
+        ok = {"charities": 25000, "filings": 140000, "with_functional": 24900, "fetch_failed_share": 0.0, "irs_filings": 8000}
         self.assertTrue(self.run_guard(ok, ok))
+        self.assertTrue(self.run_guard(ok, {**ok, "charities": 24500, "filings": 139000}))  # normal churn
         self.assertFalse(self.run_guard(ok, {**ok, "charities": 20000}))
+        self.assertFalse(self.run_guard(ok, {**ok, "filings": 132000}))   # e.g. the IRS indexes went missing
+        self.assertFalse(self.run_guard(ok, {**ok, "irs_filings": 0}))
         self.assertFalse(self.run_guard(ok, {**ok, "fetch_failed_share": 0.05}))
         self.assertFalse(self.run_guard(ok, {**ok, "charities": 3000, "filings": 15000, "with_functional": 3000}))
 

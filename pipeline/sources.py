@@ -56,9 +56,11 @@ def irs_index_url(year):
 
 
 def last_modified(url):
+    """A version stamp for a URL: Last-Modified, else ETag, else Content-Length ("" if unreachable)."""
     try:
         with http(url, method="HEAD") as r:
-            return r.headers.get("Last-Modified", "")
+            h = r.headers
+            return h.get("Last-Modified") or h.get("ETag") or h.get("Content-Length") or "present"
     except RuntimeError:
         return ""
 
@@ -114,9 +116,15 @@ def download():
         fetch_to(f"{GT}/{v['key']}", dest)
         with open(stamp, "w") as f:
             f.write(v["built"])
-    for y, lm in fp["irs"].items():
-        if lm:
+    for y in fp["irs"]:
+        # Downloaded whatever HEAD said: losing the IRS indexes would silently drop every filing
+        # the data lake doesn't have yet. Only this year's index may legitimately not exist yet.
+        try:
             fetch_to(irs_index_url(int(y)), os.path.join(RAW, "irs", f"index_{y}.csv"))
+        except RuntimeError as e:
+            if int(y) < max(map(int, fp["irs"])):
+                raise
+            print(f"  no IRS index for {y} yet ({e})", file=sys.stderr)
 
 
 def guard(prev_path, new_path):
@@ -132,11 +140,13 @@ def guard(prev_path, new_path):
     if prev_path and os.path.exists(prev_path):
         with open(prev_path) as f:
             prev = json.load(f)
-        for label in ("charities", "filings"):
-            if new[label] < prev[label] * 0.9:
+        # Coverage moves slowly (charities cross the $10M line, merge or file late); filings only
+        # accumulate. A sharper fall means a source or a step broke.
+        for label, tol in (("charities", 0.05), ("filings", 0.03), ("with_functional", 0.05)):
+            if new[label] < prev[label] * (1 - tol):
                 problems.append(f"{label} fell from {prev[label]} to {new[label]}")
-        if new["with_functional"] < prev["with_functional"] * 0.9:
-            problems.append(f"charities with a functional-expense split fell from {prev['with_functional']} to {new['with_functional']}")
+        if prev.get("irs_filings", 0) > 1000 and new.get("irs_filings", 0) < 0.5 * prev["irs_filings"]:
+            problems.append(f"filings read from the IRS monthly releases fell from {prev['irs_filings']} to {new.get('irs_filings', 0)}")
     if problems:
         print("GUARD FAILED: " + "; ".join(problems), file=sys.stderr)
         sys.exit(1)
