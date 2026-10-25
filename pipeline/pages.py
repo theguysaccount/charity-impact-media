@@ -16,7 +16,7 @@ def row_list(ctx, items, show_rank=True):
         if "program_share" in m:
             p, mg, f = hundred_split([m["program_share"], m["mgmt_share"], m["fund_share"]])
             bits.append(f"of $100 spent: {cents(p)} programs · {cents(mg)} management · {cents(f)} fundraising")
-        bits.append(esc(period(c["years"][-1])[1]))
+        bits.append(esc(period(c["cur"])[1]))
         out.append(f'<li><a class="t" href="{ctx.charity(c["ein"])}">{esc(c["name"])}</a>'
                    f'<div class="s">{" · ".join(bits)}</div>{mini_bar(m)}</li>')
     return f'<ul class="list">{"".join(out)}</ul>'
@@ -34,7 +34,7 @@ def table(ctx, items, cols):
 
 
 def name_cell(ctx):
-    return lambda c: f'<a href="{ctx.charity(c["ein"])}">{esc(c["name"])}</a><br><span class="src">{esc(c["city"])}, {esc(c["state"])} · {esc(period(c["years"][-1])[1])}</span>'
+    return lambda c: f'<a href="{ctx.charity(c["ein"])}">{esc(c["name"])}</a><br><span class="src">{esc(c["city"])}, {esc(c["state"])} · {esc(period(c["cur"])[1])}</span>'
 
 
 def std_cols(ctx):

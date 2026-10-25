@@ -14,6 +14,7 @@ has both, the parsed return with the later ReturnTs wins (see build_data.py).
 """
 
 import csv
+import datetime
 import glob
 import os
 import re
@@ -65,7 +66,7 @@ def main():
     full = newest_complete_year(ys)
     print(f"BMF public charities: {len(bmf)}; GT index years {min(ys)}-{max(ys)}, newest complete {full}", file=sys.stderr)
 
-    best = {}     # (ein, ty) -> (sortkey, row)
+    best = {}     # (ein, period end) -> (sortkey, row)
     gt_ids = set()
     for y, (fn, _) in ys.items():
         with open_text(fn) as f:
@@ -82,17 +83,30 @@ def main():
                     continue
                 if ty < FIRST_YEAR:
                     continue
+                # One return per tax period (an amended return supersedes the original). Keyed
+                # by period end, not tax year: a fiscal-year change means two returns in one year.
+                period = r["TaxPeriodEndDate"] or str(ty)
                 k = (r["SubmittedOn"] or "", r["ReturnTs"] or "", r["ObjectId"])
-                cur = best.get((ein, ty))
+                cur = best.get((ein, period))
                 if cur is None or k > cur[0]:
-                    best[(ein, ty)] = (k, r)
+                    best[(ein, period)] = (k, r)
 
+    def full_year(r):
+        try:
+            b, e = datetime.date.fromisoformat(r["TaxPeriodBeginDate"]), datetime.date.fromisoformat(r["TaxPeriodEndDate"])
+        except ValueError:
+            return True
+        return (e - b).days >= 330
+
+    # Coverage looks at the latest full-year return (a short period after a fiscal-year
+    # change would understate the organization's size).
     latest = {}
-    for (ein, ty), (_, r) in best.items():
-        if ein not in latest or ty > latest[ein][0]:
-            latest[ein] = (ty, r)
+    for (ein, period), (_, r) in best.items():
+        rank = (full_year(r), int(r["TaxYear"]), period)
+        if ein not in latest or rank > latest[ein][2]:
+            latest[ein] = (int(r["TaxYear"]), r, rank)
     covered = {}
-    for ein, (ty, r) in latest.items():
+    for ein, (ty, r, _) in latest.items():
         rev = money(r["TotalRevenueCY"]) or 0
         if ty >= full - 2 and rev >= MIN_REVENUE:
             covered[ein] = {**bmf[ein], "index_name": r["OrganizationName"], "index_rev": rev, "index_ty": ty,
@@ -100,9 +114,9 @@ def main():
     print(f"covered charities: {len(covered)} (latest revenue >= ${MIN_REVENUE:,}, latest tax year >= {full - 2})", file=sys.stderr)
 
     rows = []
-    for (ein, ty), (_, r) in sorted(best.items()):
+    for (ein, _), (_, r) in sorted(best.items()):
         if ein in covered:
-            rows.append({"object_id": r["ObjectId"], "ein": ein, "ty": ty, "source": "gt",
+            rows.append({"object_id": r["ObjectId"], "ein": ein, "ty": int(r["TaxYear"]), "source": "gt",
                          "ref": r["URL"] or GT_XML_URL.format(object_id=r["ObjectId"]), "size": r["FileSizeBytes"] or ""})
     n_gt = len(rows)
 

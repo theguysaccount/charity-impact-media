@@ -73,7 +73,7 @@ def main():
         try:
             st, s = get(u)
             ok = (st == 200 and f'<link rel="canonical" href="{u}">' in s and 'id="reply"' in s
-                  and "template=correction.yml" in s and re.search(r'<li id="f\d{4}">', s) is not None)
+                  and "template=correction.yml" in s and re.search(r'<li id="f\d{6}">', s) is not None)
             check(f"charity page {u}", ok)
             st2, dj = get(u + "data.json")
             check(f"data.json {u}", st2 == 200 and json.loads(dj)["e"] in u)

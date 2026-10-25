@@ -2,7 +2,7 @@
 """Open Graph share cards (1200x630 PNG): "Of every $100 spent" for each charity, so a
 shared link previews the answer rather than a logo.
 
-  python3 pipeline/og_cards.py [--limit 3000]     # needs Pillow; -> data/work/og/<ein>.png, site.png
+  python3 pipeline/og_cards.py [--limit 2000]     # needs Pillow; -> data/work/og/<ein>.png, site.png
 
 Cards are made for the charities ranked highest by contributions (the ones most likely to
 be shared), within the GitHub Pages size budget; every other page uses site.png.
@@ -69,7 +69,7 @@ def card(Image, ImageDraw, F, c=None):
         d.text((x, 470), "Program spending · executive pay · revenue · trends. No ratings.", font=F(30), fill=INK2)
         d.text((x, 545), "Every number links to the filing it came from.", font=F(26), fill=MUTED)
         return img
-    m, y0 = c["m"], c["years"][-1]
+    m, y0 = c["m"], c["cur"]
     _, lab = period(y0)
     d.text((x, 44), f"WHERE THE MONEY GOES · FORM 990, {lab}", font=F(24, True), fill=ACCENT)
     tf = F(60, True)
@@ -124,7 +124,7 @@ def save(img, path):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--limit", type=int, default=int(os.environ.get("CIM_OG_LIMIT") or 3000))
+    ap.add_argument("--limit", type=int, default=int(os.environ.get("CIM_OG_LIMIT") or 2000))
     a = ap.parse_args()
     try:
         from PIL import Image, ImageDraw, ImageFont

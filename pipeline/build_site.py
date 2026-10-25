@@ -28,7 +28,7 @@ from common import PROPUBLICA_FILING, ROOT, WORK, ein_dash, read_json  # noqa: E
 SITE = os.path.join(ROOT, "site")
 CONTENT = os.path.join(ROOT, "content")
 SIZE_LIMIT = 950e6
-PAGES_BUDGET = float(os.environ.get("CIM_PAGES_BUDGET_MB") or 700) * 1e6
+PAGES_BUDGET = float(os.environ.get("CIM_PAGES_BUDGET_MB") or 740) * 1e6
 CSV_COLUMNS = [
     ("ein", "IRS employer identification number"), ("name", "Display name (from the latest filing)"),
     ("also_known_as", "Doing-business-as name, when filed"), ("city", "City on the latest filing"), ("state", "State"),
@@ -94,7 +94,7 @@ def az_key(name):
 
 
 def csv_row(ctx, c):
-    L, m, y = c["latest"], c["m"], c["years"][-1]
+    L, m, y = c["latest"], c["m"], c["cur"]
     f = L.get("f") or {}
     yn = lambda v: "" if v is None else ("1" if v else "0")  # noqa: E731
     r4 = lambda v: "" if v is None else f"{v:.4f}"  # noqa: E731
@@ -105,11 +105,11 @@ def csv_row(ctx, c):
             r4(m.get("cost_per_dollar")), m.get("top_comp", ""), m.get("top_comp_title", ""), m.get("n_over_100k", ""),
             L.get("net_assets"), "" if m.get("months_net_assets") is None else f"{m['months_net_assets']:.1f}",
             L.get("board_voting"), L.get("board_independent"), yn(f.get("audited")), yn(f.get("conflict_policy")),
-            yn(f.get("whistleblower")), " ".join(str(x["ty"]) for x in c["years"]), ctx.abs(f"/charity/{c['ein']}/")]
+            yn(f.get("whistleblower")), " ".join(str(t) for t in sorted({x["ty"] for x in c["years"]})), ctx.abs(f"/charity/{c['ein']}/")]
 
 
 def data_json(c):
-    m, y = c["m"], c["years"][-1]
+    m, y = c["m"], c["cur"]
     ph, lab = R.period(y)
     keep = ["program_share", "mgmt_share", "fund_share", "cost_per_dollar", "contrib_share", "gov_share", "program_rev_share",
             "top_comp", "top_comp_title", "top_comp_share", "n_over_100k", "months_net_assets", "independent_share"]

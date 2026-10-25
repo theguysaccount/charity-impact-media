@@ -120,8 +120,21 @@ class MetricsTest(unittest.TestCase):
     def test_amended_return_wins(self):
         orig = {"oid": "1", "src": "gt", "rec": parse(return_xml(return_ts="2025-11-10T10:00:00-05:00"))}
         amend = {"oid": "2", "src": "irs", "rec": parse(return_xml(return_ts="2026-02-01T10:00:00-05:00", amended=True, exp=10_000_000))}
-        self.assertEqual(build_data.pick_years([orig, amend])[2024]["oid"], "2")
-        self.assertEqual(build_data.pick_years([amend, orig])[2024]["oid"], "2")
+        self.assertEqual(build_data.pick_years([orig, amend])["202506"]["oid"], "2")
+        self.assertEqual(build_data.pick_years([amend, orig])["202506"]["oid"], "2")
+
+    def test_fiscal_year_change_keeps_both_returns(self):
+        # A charity moving from June to December year-ends files a full year and a 6-month
+        # short period with the same tax year; both are kept and the scorecard uses the full year.
+        full = {"oid": "1", "src": "gt", "rec": parse(return_xml(tax_year=2024, period_end="2025-06-30"))}
+        short_xml = return_xml(tax_year=2024, period_end="2025-12-31", rev=5_000_000, return_ts="2026-03-01T10:00:00-05:00")
+        short_xml = short_xml.replace(b"<TaxPeriodBeginDt>2024-07-01</TaxPeriodBeginDt>", b"<TaxPeriodBeginDt>2025-07-01</TaxPeriodBeginDt>")
+        short = {"oid": "2", "src": "gt", "rec": parse(short_xml)}
+        picked = build_data.pick_years([full, short])
+        self.assertEqual(set(picked), {"202506", "202512"})
+        self.assertEqual(build_data.months(picked["202506"]["rec"]), 12)
+        self.assertEqual(build_data.months(picked["202512"]["rec"]), 6)
+        self.assertEqual(render.period({"ty": 2024, "period_end": "2025-12-31", "months": 6})[1], "FY2025 (6 mo.)")
 
     def test_text_cleanup(self):
         self.assertEqual(render.useful_text("Food Procurement - See Schedule O"), "Food Procurement")
@@ -305,17 +318,17 @@ class SiteBuildTest(unittest.TestCase):
 
     def test_every_figure_cites_its_filing(self):
         s = self.page(self.eins[0])
-        anchors = set(re.findall(r'<li id="f(\d{4})">', s))
-        self.assertEqual(anchors, {"2021", "2022", "2023", "2024"})
-        for ty in re.findall(r'href=#f(\d{4})', s):
-            self.assertIn(ty, anchors)
+        anchors = set(re.findall(r'<li id="f(\d{6})">', s))
+        self.assertEqual(anchors, {"202206", "202306", "202406", "202506"})
+        for key in re.findall(r'href=#f(\d{6})', s):
+            self.assertIn(key, anchors)
         # In the figure sections, no dollar amount or percentage stands outside a citation link,
         # except the medians column (computed across charities and labelled as such).
         for sec in ("spend", "came", "score", "progs", "pay", "gov"):
             m = re.search(rf'<section[^>]*aria-labelledby="{sec}".*?</section>', s, re.S)
             self.assertIsNotNone(m, sec)
             body = m.group(0)
-            body = re.sub(r'<a href=#f\d{4}>.*?</a>', "", body)
+            body = re.sub(r'<a href=#f\d{6}>.*?</a>', "", body)
             body = re.sub(r'<p class="ctx">.*?</p>', "", body, flags=re.S)  # median context sentence
             body = re.sub(r'<caption.*?</caption>', "", body, flags=re.S)
             body = re.sub(r'<h2.*?</h2>', "", body, flags=re.S)
@@ -390,6 +403,7 @@ class SiteBuildTest(unittest.TestCase):
         s = read(os.path.join(out, "charity", self.eins[-1], "index.html"))
         self.assertIn("issues/new?template=correction.yml", s)  # slim pages keep the right of reply
         self.assertIn('aria-labelledby="score"', s)
+        self.assertIn('aria-labelledby="faqh"', s)  # slim pages keep the questions people search for
 
 
 if __name__ == "__main__":

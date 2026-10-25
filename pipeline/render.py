@@ -101,16 +101,26 @@ def hundred_split(parts):
     return base
 
 
+def is_short(y):
+    return bool(y.get("months")) and y["months"] < 11
+
+
 def period(y):
-    """Readable fiscal period for one filing-year dict (needs ty and period_end)."""
+    """Readable fiscal period for one filing dict (needs ty and period_end; months when known)."""
     pe = y.get("period_end") or ""
     m = re.match(r"(\d{4})-(\d{2})-(\d{2})", pe)
     if not m:
         return f"tax year {y['ty']}", str(y["ty"])
     yr, mo, d = int(m.group(1)), int(m.group(2)), int(m.group(3))
-    if mo == 12:
-        return f"calendar year {yr}", str(yr)
-    return f"the fiscal year ending {MONTHS[mo - 1]} {d}, {yr}", f"FY{yr}"
+    short = y.get("months") and y["months"] < 11
+    if mo == 12 and not short:
+        long_, lab = f"calendar year {yr}", str(yr)
+    else:
+        long_, lab = f"the fiscal year ending {MONTHS[mo - 1]} {d}, {yr}", f"FY{yr}"
+    if short:
+        long_ = f"the {y['months']}-month short period ending {MONTHS[mo - 1]} {d}, {yr}"
+        lab += f" ({y['months']} mo.)"
+    return long_, lab
 
 
 # --------------------------------------------------------------------------
@@ -205,14 +215,14 @@ def stacked(parts, label):
             f'<ul class="legend">{"".join(rows)}</ul>')
 
 
-def ref(ty, text):
-    """A figure, linked to the citation for its filing year in the page's source list."""
-    return f'<a href=#f{ty}>{text}</a>'
+def ref(fk, text):
+    """A figure, linked to the citation for its filing (keyed by period end, YYYYMM) in the page's source list."""
+    return f'<a href=#f{fk}>{text}</a>'
 
 
 def trend_svg(years):
     """Revenue and expenses over the filed years: one dollar axis, two 2px lines, end labels."""
-    pts = [y for y in years if y.get("rev_total") is not None and y.get("exp_total") is not None]
+    pts = [y for y in years if y.get("rev_total") is not None and y.get("exp_total") is not None and not is_short(y)]
     if len(pts) < 2:
         return ""
     W, H, L, R, T, B = 640, 220, 56, 84, 14, 28
@@ -265,7 +275,7 @@ def mini_bar(m):
 
 def narrative(c):
     """A short factual summary, generated from the latest filing (no adjectives about quality)."""
-    L, m, y = c["latest"], c["m"], c["years"][-1]
+    L, m, y = c["latest"], c["m"], c["cur"]
     ph, _ = period(y)
     s = [f"{c['name']} reported {usd_words(L.get('rev_total'))} in revenue and {usd_words(L.get('exp_total'))} in expenses for {ph}."]
     if "program_share" in m:
@@ -287,7 +297,7 @@ def narrative(c):
     if m.get("n_over_100k"):
         n = m["n_over_100k"]
         s.append(f"{n:,} {'person' if n == 1 else 'people'} received more than $100,000 in reportable compensation.")
-    ys = [x for x in c["years"] if x.get("rev_total")]
+    ys = [x for x in c["years"] if x.get("rev_total") and not is_short(x)]
     if len(ys) >= 4 and ys[0]["rev_total"] > 0:
         ch = ys[-1]["rev_total"] / ys[0]["rev_total"] - 1
         verb = "rose" if ch >= 0 else "fell"
@@ -296,7 +306,7 @@ def narrative(c):
 
 
 def faq(c):
-    L, m, y = c["latest"], c["m"], c["years"][-1]
+    L, m, y = c["latest"], c["m"], c["cur"]
     ph, lab = period(y)
     n = c["name"]
     qa = []
@@ -313,7 +323,7 @@ def faq(c):
                    f"Of {usd_words(L['rev_total'])} in revenue in {ph}, {pct((L.get('contributions') or 0) / L['rev_total'])} came from contributions and grants"
                    + (f" (including {pct(L['gov_grants'] / L['rev_total'])} from government grants)" if (L.get("gov_grants") or 0) > 0 else "")
                    + f" and {pct((L.get('program_rev') or 0) / L['rev_total'])} from program service revenue (Form 990, Part VIII)."))
-    years = ", ".join(str(x["ty"]) for x in c["years"])
+    years = ", ".join(str(t) for t in sorted({x["ty"] for x in c["years"]}))
     qa.append((f"Is {n} a registered charity?",
                f"The IRS lists EIN {ein_dash(c['ein'])} as a 501(c)(3) organization"
                + (f" ({c['type'].lower()})" if c.get("type") else "")
@@ -324,8 +334,8 @@ def faq(c):
 
 def scorecard_rows(c):
     m, peer = c["m"], c.get("peer", {})
-    ty = c["years"][-1]["ty"]
-    lab = period(c["years"][-1])[1]
+    fk = c["cur"]["key"]
+    lab = period(c["cur"])[1]
     scope = "all covered charities" if peer.get("scope") == "all" else "this category"
     rows = [
         ("Program services", "program_share", pct), ("Management & general", "mgmt_share", pct),
@@ -345,9 +355,9 @@ def scorecard_rows(c):
         if key not in m:
             val = "Not reported"
         else:
-            val = ref(ty, esc(fmt(m[key])))
+            val = ref(fk, esc(fmt(m[key])))
             if key == "independent_share":
-                val = ref(ty, esc(f"{m.get('board_independent') or 0} of {m['board_voting']}"))
+                val = ref(fk, esc(f"{m.get('board_independent') or 0} of {m['board_voting']}"))
         med = esc(fmt(peer[key])) if key in peer else "—"
         out.append(f'<tr><td>{esc(label)}<br><span class="src">{esc(FORM_LINES[key])}</span></td><td class="r">{val}</td><td class="r">{med}</td></tr>')
     return (f'<table class="tbl"><caption>{esc(lab)} filing. '
@@ -374,10 +384,10 @@ GOV_QUESTIONS = [
 
 
 def charity_page(ctx, c, similar, og_image=None, slim=False):
-    """slim=True drops the trend chart, contractors, similar list and FAQ (used only to fit the Pages size budget)."""
+    """slim=True drops the trend chart, contractors, similar list and embed code (used only to fit the Pages size budget)."""
     L, m, years = c["latest"], c["m"], c["years"]
     y = years[-1]
-    ty = y["ty"]
+    ty, fk = y["ty"], y["key"]
     ph, lab = period(y)
     ein = c["ein"]
     name = c["name"]
@@ -393,7 +403,7 @@ def charity_page(ctx, c, similar, og_image=None, slim=False):
             + f'<br>Latest filing: Form 990 for {esc(ph)} (tax year {ty}) · <a href="{esc(filing_url)}" data-ev="source_open">View the filing</a>'
             + f' · <a href="#reply">Correct or respond</a></p>')
 
-    brief = f'<p class="brief">{esc(narrative(c))} <a href=#f{ty}>Source: Form 990, {esc(lab)}</a>.</p>'
+    brief = f'<p class="brief">{esc(narrative(c))} <a href=#f{fk}>Source: Form 990, {esc(lab)}</a>.</p>'
 
     # Where $100 went / came from.
     spend = ""
@@ -406,10 +416,10 @@ def charity_page(ctx, c, similar, og_image=None, slim=False):
             pp, pm, pf = hundred_split([peer["program_share"], peer.get("mgmt_share", 0), peer.get("fund_share", 0)])
             ctx_line = f'<p class="ctx">For context, the median across {peer["n"]:,} {esc(scope)}: {cents(pp)} programs, {cents(pm)} management, {cents(pf)} fundraising (medians computed separately, so they may not sum to $100).</p>'
         spend = (f'<section class="card" aria-labelledby="spend"><h2 id="spend">Where $100 of spending went</h2>'
-                 f'<span class="cap">{esc(ph[0].upper() + ph[1:])} · Form 990, Part IX, line 25 · total expenses {ref(ty, esc(usd(L.get("exp_total"))))}</span>'
-                 + stacked([("Program services", m["program_share"], "c1", ref(ty, cents(p)) + f' <span class="src">{ref(ty, esc(usd(L.get("exp_program"))))}</span>'),
-                            ("Management & general", m["mgmt_share"], "c2", ref(ty, cents(mg)) + f' <span class="src">{ref(ty, esc(usd(L.get("exp_mgmt"))))}</span>'),
-                            ("Fundraising", m["fund_share"], "c3", ref(ty, cents(f)) + f' <span class="src">{ref(ty, esc(usd(L.get("exp_fundraising"))))}</span>')],
+                 f'<span class="cap">{esc(ph[0].upper() + ph[1:])} · Form 990, Part IX, line 25 · total expenses {ref(fk, esc(usd(L.get("exp_total"))))}</span>'
+                 + stacked([("Program services", m["program_share"], "c1", ref(fk, cents(p)) + f' <span class="src">{ref(fk, esc(usd(L.get("exp_program"))))}</span>'),
+                            ("Management & general", m["mgmt_share"], "c2", ref(fk, cents(mg)) + f' <span class="src">{ref(fk, esc(usd(L.get("exp_mgmt"))))}</span>'),
+                            ("Fundraising", m["fund_share"], "c3", ref(fk, cents(f)) + f' <span class="src">{ref(fk, esc(usd(L.get("exp_fundraising"))))}</span>')],
                            f"Of every $100 spent: {cents(p)} programs, {cents(mg)} management and general, {cents(f)} fundraising")
                  + ctx_line + "</section>")
     else:
@@ -430,11 +440,11 @@ def charity_page(ctx, c, similar, og_image=None, slim=False):
         shares = hundred_split([p[1] for p in pos])
         legend = []
         for (nm, val, cls), cc in zip(pos, shares):
-            legend.append((nm, val, cls, ref(ty, cents(cc)) + f' <span class="src">{ref(ty, esc(usd(val)))}</span>'))
+            legend.append((nm, val, cls, ref(fk, cents(cc)) + f' <span class="src">{ref(fk, esc(usd(val)))}</span>'))
         neg = [p for p in parts if p[1] < 0]
-        negnote = "".join(f'<p class="ctx">{esc(nm)} was negative: {ref(ty, esc(usd(val)))}. The bar shows the positive sources only.</p>' for nm, val, _ in neg)
+        negnote = "".join(f'<p class="ctx">{esc(nm)} was negative: {ref(fk, esc(usd(val)))}. The bar shows the positive sources only.</p>' for nm, val, _ in neg)
         came = (f'<section class="card" aria-labelledby="came"><h2 id="came">Where $100 of revenue came from</h2>'
-                f'<span class="cap">{esc(ph[0].upper() + ph[1:])} · Form 990, Part VIII · total revenue {ref(ty, esc(usd(rev)))}</span>'
+                f'<span class="cap">{esc(ph[0].upper() + ph[1:])} · Form 990, Part VIII · total revenue {ref(fk, esc(usd(rev)))}</span>'
                 + stacked(legend, "Revenue sources per $100") + negnote + "</section>")
 
     score = (f'<section class="card" aria-labelledby="score"><h2 id="score">The 990 scorecard <small>· same measures for every charity, no grades</small></h2>'
@@ -447,14 +457,14 @@ def charity_page(ctx, c, similar, og_image=None, slim=False):
     if comp:
         rows = "".join(
             f'<tr><td>{esc(p["title"] or "Listed person")}<br><span class="src">{esc(role_words(p["roles"]))}{", " + esc(p["hours"]) + " hrs/week" if p.get("hours") else ""}</span></td>'
-            f'<td class="r">{ref(ty, esc(usd(p["org"], short=False)))}</td><td class="r">{ref(ty, esc(usd(p["related"], short=False)))}</td>'
-            f'<td class="r">{ref(ty, esc(usd(p["other"], short=False)))}</td><td class="r"><b>{ref(ty, esc(usd(p["total"], short=False)))}</b></td></tr>'
+            f'<td class="r">{ref(fk, esc(usd(p["org"], short=False)))}</td><td class="r">{ref(fk, esc(usd(p["related"], short=False)))}</td>'
+            f'<td class="r">{ref(fk, esc(usd(p["other"], short=False)))}</td><td class="r"><b>{ref(fk, esc(usd(p["total"], short=False)))}</b></td></tr>'
             for p in comp[:8])
         extra = ""
         if m.get("n_over_100k") is not None:
-            extra += f'<p class="ctx">{ref(ty, esc(num(m["n_over_100k"])))} people received more than $100,000 in reportable compensation from {esc(name)} (Part VII, line 2).'
+            extra += f'<p class="ctx">{ref(fk, esc(num(m["n_over_100k"])))} people received more than $100,000 in reportable compensation from {esc(name)} (Part VII, line 2).'
             if L.get("officer_comp") is not None:
-                extra += f' Compensation of current officers, directors and key employees totaled {ref(ty, esc(usd(L["officer_comp"])))} (Part IX, line 5).'
+                extra += f' Compensation of current officers, directors and key employees totaled {ref(fk, esc(usd(L["officer_comp"])))} (Part IX, line 5).'
             extra += "</p>"
         pay = (f'<section class="card" aria-labelledby="pay"><h2 id="pay">Highest reported compensation</h2>'
                f'<span class="cap">{esc(lab)} · Form 990, Part VII, Section A · roles as filed; names are in the filing, not here</span>'
@@ -467,14 +477,14 @@ def charity_page(ctx, c, similar, og_image=None, slim=False):
         pt = L.get("programs_total_exp") or sum(p.get("exp") or 0 for p in pl) or 0
         items = []
         for p in pl:
-            sh = f" · {ref(ty, esc(pct(p['exp'] / pt)))} of program spending" if pt and p.get("exp") else ""
-            items.append(f'<div class="prog"><strong>{ref(ty, esc(usd(p.get("exp"))))}</strong> <span class="src">expenses{sh}'
-                         + (f' · grants {ref(ty, esc(usd(p["grants"])))}' if p.get("grants") else "")
-                         + (f' · revenue {ref(ty, esc(usd(p["rev"])))}' if p.get("rev") else "")
+            sh = f" · {ref(fk, esc(pct(p['exp'] / pt)))} of program spending" if pt and p.get("exp") else ""
+            items.append(f'<div class="prog"><strong>{ref(fk, esc(usd(p.get("exp"))))}</strong> <span class="src">expenses{sh}'
+                         + (f' · grants {ref(fk, esc(usd(p["grants"])))}' if p.get("grants") else "")
+                         + (f' · revenue {ref(fk, esc(usd(p["rev"])))}' if p.get("rev") else "")
                          + f'</span><p>{esc(clip(sentence_case(useful_text(p.get("desc")) or "No description in Part III; see the filing.", c["legal_name"]), 600))}</p></div>')
         oth = L.get("programs_other_exp")
         if oth:
-            items.append(f'<div class="prog"><strong>{ref(ty, esc(usd(oth)))}</strong> <span class="src">all other programs (line 4d)</span></div>')
+            items.append(f'<div class="prog"><strong>{ref(fk, esc(usd(oth)))}</strong> <span class="src">all other programs (line 4d)</span></div>')
         progs = (f'<section class="card" aria-labelledby="progs"><h2 id="progs">What the money paid for, in its own words</h2>'
                  f'<span class="cap">{esc(lab)} · Form 990, Part III · the three largest programs by expense</span>{"".join(items)}</section>')
 
@@ -482,14 +492,18 @@ def charity_page(ctx, c, similar, og_image=None, slim=False):
     for x in reversed(years):
         _, xl = period(x)
         fu = PROPUBLICA_FILING.format(ein=ein, object_id=x["oid"])
-        hist_rows.append(f'<tr><td><a href="{esc(fu)}">{esc(xl)}</a>{" (amended)" if x.get("amended") else ""} <a href=#f{x["ty"]} aria-label="source details">ⓘ</a>'
+        hist_rows.append(f'<tr><td><a href="{esc(fu)}">{esc(xl)}</a>{" (amended)" if x.get("amended") else ""} <a href=#f{x["key"]} aria-label="source details">ⓘ</a>'
                          f'<td class=r>{esc(usd(x.get("rev_total")))}<td class=r>{esc(usd(x.get("exp_total")))}'
                          f'<td class=r>{esc(pct(x.get("program_share")))}<td class=r>{esc(usd(x.get("net_assets")))}'
                          f'<td class=r>{esc(usd(x.get("top_comp"), short=False))}</tr>')
     chart = "" if slim else trend_svg(years)
-    trend = (f'<section class="card" aria-labelledby="trend"><h2 id="trend">{len(years)} years of filings</h2>'
+    n_short = sum(1 for x in years if is_short(x))
+    trend_h = f"{len(years)} years of filings" if not n_short else f"{len(years)} filings since {period(years[0])[1]}"
+    trend = (f'<section class="card" aria-labelledby="trend"><h2 id="trend">{esc(trend_h)}</h2>'
              f'<span class="cap">Form 990, Parts I, VII, IX and X · each row is that year\'s own filing, linked</span>'
-             + (f'<div class="keyrow"><span><i class="c1"></i>Revenue</span><span><i class="c2"></i>Expenses</span></div><div class="chart">{chart}</div>' if chart else "")
+             + (f'<div class="keyrow"><span><i class="c1"></i>Revenue</span><span><i class="c2"></i>Expenses</span>'
+                + ('<span>Short periods (after a fiscal-year change) are in the table, not the chart.</span>' if n_short else "")
+                + f'</div><div class="chart">{chart}</div>' if chart else "")
              + f'<div class="scroll"><table class="tbl"><thead><tr><th scope="col">Filing</th><th scope="col" class="r">Revenue</th><th scope="col" class="r">Expenses</th>'
                f'<th scope="col" class="r">Programs</th><th scope="col" class="r">Net assets</th><th scope="col" class="r">Top pay</th></tr></thead><tbody>{"".join(hist_rows)}</tbody></table></div></section>')
 
@@ -498,23 +512,23 @@ def charity_page(ctx, c, similar, og_image=None, slim=False):
     for key, q, line in GOV_QUESTIONS:
         v = f.get(key)
         ans = "Not answered" if v is None else ("Yes" if v else "No")
-        gov_items.append(f'<li><span>{esc(q)} <span class="src">Part {esc(line)}</span></span><span>{ref(ty, ans)}</span></li>')
+        gov_items.append(f'<li><span>{esc(q)} <span class="src">Part {esc(line)}</span></span><span>{ref(fk, ans)}</span></li>')
     bv, bi = L.get("board_voting"), L.get("board_independent")
     if bv:
-        gov_items.insert(0, f'<li><span>Voting board members, and how many are independent <span class="src">Part VI, lines 1a–1b</span></span><span>{ref(ty, esc(f"{bv:,} · {bi or 0:,} independent"))}</span></li>')
+        gov_items.insert(0, f'<li><span>Voting board members, and how many are independent <span class="src">Part VI, lines 1a–1b</span></span><span>{ref(fk, esc(f"{bv:,} · {bi or 0:,} independent"))}</span></li>')
     if L.get("employees") is not None:
-        gov_items.append(f'<li><span>Employees <span class="src">Part I, line 5</span></span><span>{ref(ty, esc(num(L["employees"])))}</span></li>')
+        gov_items.append(f'<li><span>Employees <span class="src">Part I, line 5</span></span><span>{ref(fk, esc(num(L["employees"])))}</span></li>')
     if L.get("volunteers"):
-        gov_items.append(f'<li><span>Volunteers <span class="src">Part I, line 6</span></span><span>{ref(ty, esc(num(L["volunteers"])))}</span></li>')
+        gov_items.append(f'<li><span>Volunteers <span class="src">Part I, line 6</span></span><span>{ref(fk, esc(num(L["volunteers"])))}</span></li>')
     gov = (f'<section class="card" aria-labelledby="gov"><h2 id="gov">Governance answers, as filed</h2>'
            f'<span class="cap">{esc(lab)} · the organization\'s own yes/no answers; explanations, if any, are in Schedule O of the filing · <a href="{ctx.u("/guides/governance-questions/")}">what each means</a></span>'
            f'<ul class="facts">{"".join(gov_items)}</ul></section>')
 
     cons = ""
     if L.get("contractors") and not slim:
-        rows = "".join(f'<tr><td>{esc(x["name"])}<br><span class="src">{esc(sentence_case(x["services"]))}</span></td><td class="r">{ref(ty, esc(usd(x["amount"], short=False)))}</td></tr>'
+        rows = "".join(f'<tr><td>{esc(x["name"])}<br><span class="src">{esc(sentence_case(x["services"]))}</span></td><td class="r">{ref(fk, esc(usd(x["amount"], short=False)))}</td></tr>'
                        for x in L["contractors"])
-        more = f' {ref(ty, esc(num(L["n_contractors_100k"])))} contractors were paid more than $100,000 in all.' if L.get("n_contractors_100k") else ""
+        more = f' {ref(fk, esc(num(L["n_contractors_100k"])))} contractors were paid more than $100,000 in all.' if L.get("n_contractors_100k") else ""
         cons = (f'<section class="card" aria-labelledby="cons"><h2 id="cons">Largest outside contractors</h2>'
                 f'<span class="cap">{esc(lab)} · Form 990, Part VII, Section B · businesses only{esc("")}</span>'
                 f'<div class="scroll"><table class="tbl"><tbody>{rows}</tbody></table></div><p class="ctx">Individuals listed as contractors are left out.{more}</p></section>')
@@ -550,18 +564,19 @@ def charity_page(ctx, c, similar, og_image=None, slim=False):
              f'<a class="btn" data-act="x" href="#" rel="noopener">X</a><a class="btn" data-act="linkedin" href="#" rel="noopener">LinkedIn</a>'
              f'<a class="btn" data-act="facebook" href="#" rel="noopener">Facebook</a><a class="btn" data-act="email" href="#">Email</a>'
              f'<a class="btn" href="{ctx.u(f"/compare/?e={ein}")}" data-ev="compare_open">Compare with another charity</a></div>'
-             f'<h3>Embed on your site</h3><textarea class="embed" readonly aria-label="Embed code" data-ev="embed_copy">{esc(embed)}</textarea></section>')
+             + ("" if slim else f'<h3>Embed on your site</h3><textarea class="embed" readonly aria-label="Embed code" data-ev="embed_copy">{esc(embed)}</textarea>')
+             + '</section>')
 
     sim = ""
     if similar and not slim:
         sim = ('<section class="card" aria-labelledby="sim"><h2 id="sim">Similar-sized charities in this cause</h2><ul class="list">' + "".join(
             f'<li><a class="t" href="{ctx.charity(s["ein"])}">{esc(s["name"])}</a><div class="s">{esc(s["city"])}, {esc(s["state"])} · revenue {esc(usd(s["latest"].get("rev_total")))}'
-            + (f' · programs {pct(s["m"]["program_share"])}' if "program_share" in s["m"] else "") + f' · {esc(period(s["years"][-1])[1])}</div></li>'
+            + (f' · programs {pct(s["m"]["program_share"])}' if "program_share" in s["m"] else "") + f' · {esc(period(s["cur"])[1])}</div></li>'
             for s in similar) + f'</ul><p class="ctx"><a href="{ctx.u(f"/category/{cat_slug}/")}">All {esc(cat_label.lower())} charities</a> · '
             f'<a href="{ctx.u("/state/" + c["state"].lower() + "/")}">Largest charities in {esc(c.get("state_name") or c["state"])}</a></p></section>')
 
     qa = faq(c)
-    faq_html = "" if slim else ('<section class="card" aria-labelledby="faqh"><h2 id="faqh">Questions people ask</h2>' + "".join(
+    faq_html = ('<section class="card" aria-labelledby="faqh"><h2 id="faqh">Questions people ask</h2>' + "".join(
         f'<h3>{esc(q)}</h3><p>{esc(a)}</p>' for q, a in qa) + "</section>")
 
     src_items = []
@@ -570,7 +585,7 @@ def charity_page(ctx, c, similar, og_image=None, slim=False):
         fu = PROPUBLICA_FILING.format(ein=ein, object_id=x["oid"])
         raw = (f' · <a href="https://gt990datalake-rawdata.s3.amazonaws.com/EfileData/XmlFiles/{x["oid"]}_public.xml">XML</a>'
                if x.get("src") == "gt" and x is years[-1] else "")
-        src_items.append(f'<li id="f{x["ty"]}"><b>{esc(xl)}</b>: Form 990 for {esc(xph)}{" (amended)" if x.get("amended") else ""}, '
+        src_items.append(f'<li id="f{x["key"]}"><b>{esc(xl)}</b>: Form 990 for {esc(xph)}{" (amended)" if x.get("amended") else ""}, '
                          f'object {esc(x["oid"])} · <a href="{esc(fu)}">read the filing</a>{raw}</li>')
     sources = (f'<section class="card" aria-labelledby="srcs"><h2 id="srcs">Sources</h2><ul class="list">{"".join(src_items)}</ul>'
                f'<p class="ctx">All filings for EIN {ein_dash(ein)}: <a href="{esc(PROPUBLICA_ORG.format(ein=ein))}">ProPublica Nonprofit Explorer</a> · '
@@ -605,7 +620,7 @@ def charity_page(ctx, c, similar, og_image=None, slim=False):
 
 
 def description_for(c):
-    m, y = c["m"], c["years"][-1]
+    m, y = c["m"], c["cur"]
     _, lab = period(y)
     bits = []
     if "program_share" in m:
@@ -619,7 +634,7 @@ def description_for(c):
 
 
 def narrative_share(c):
-    m, y = c["m"], c["years"][-1]
+    m, y = c["m"], c["cur"]
     _, lab = period(y)
     if "program_share" in m:
         p, _, _ = hundred_split([m["program_share"], m["mgmt_share"], m["fund_share"]])

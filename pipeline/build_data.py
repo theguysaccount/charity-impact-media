@@ -103,17 +103,29 @@ def display_name(rec, cov):
 
 
 def pick_years(rows):
-    """{tax_year: row}: per tax year, the return with the latest ReturnTs (amendments win)."""
+    """{period key: row}: one return per tax period (the latest ReturnTs wins, so an amended
+    return replaces the original). Keyed by period end, not tax year: a charity that changes
+    its fiscal year files two returns for one tax year (a full year and a short period)."""
     by = {}
     for row in rows:
         rec = row["rec"]
-        ty = rec.get("tax_year")
-        if not ty:
+        if not rec.get("tax_year"):
             continue
+        key = (rec.get("period_end") or "")[:7].replace("-", "") or str(rec["tax_year"])
         k = (rec.get("return_ts") or "", row["oid"])
-        if ty not in by or k > by[ty][0]:
-            by[ty] = (k, row)
-    return {ty: v[1] for ty, v in by.items()}
+        if key not in by or k > by[key][0]:
+            by[key] = (k, row)
+    return {key: v[1] for key, v in by.items()}
+
+
+def months(rec):
+    """Length of the tax period in months (12 for a normal year), or None when unknown."""
+    try:
+        b = datetime.date.fromisoformat(rec.get("period_begin") or "")
+        e = datetime.date.fromisoformat(rec.get("period_end") or "")
+    except ValueError:
+        return None
+    return max(1, min(12, round(((e - b).days + 1) / 30.44)))
 
 
 def functional_ok(r):
@@ -193,26 +205,30 @@ def main():
     n_filings = 0
     for ein, meta in cov.items():
         years = pick_years(rows.get(ein, []))
-        years = {ty: row for ty, row in years.items() if (row["rec"].get("exp_total") or 0) > 0 or (row["rec"].get("rev_total") or 0) > 0}
+        years = {k: row for k, row in years.items() if (row["rec"].get("exp_total") or 0) > 0 or (row["rec"].get("rev_total") or 0) > 0}
         if not years:
             continue
-        latest_ty = max(years)
-        latest = years[latest_ty]["rec"]
-        name, dba = display_name(latest, meta)
         hist = []
-        for ty in sorted(years):
-            row = years[ty]
+        for key in sorted(years):
+            row = years[key]
             r = row["rec"]
             oid = row["oid"]
             first_seen.setdefault(oid, today)
             top = (r.get("comp") or [None])[0]
             hist.append({
-                "ty": ty, "oid": oid, "src": row["src"], "period_end": r.get("period_end", ""),
-                "seen": first_seen[oid], "amended": r.get("amended", False),
+                "key": key, "ty": r["tax_year"], "oid": oid, "src": row["src"], "period_end": r.get("period_end", ""),
+                "months": months(r), "seen": first_seen[oid], "amended": r.get("amended", False),
                 **{k: r.get(k) for k in YEAR_KEYS},
                 "top_comp": top["total"] if top else None,
                 "program_share": (r["exp_program"] / r["exp_total"]) if functional_ok(r) else None,
             })
+        # The scorecard uses the latest full-year return; a short period after a fiscal-year
+        # change still shows in the history and sources.
+        full = [i for i, h in enumerate(hist) if not h["months"] or h["months"] >= 11]
+        cur_i = full[-1] if full else len(hist) - 1
+        cur = hist[cur_i]
+        latest = years[cur["key"]]["rec"]
+        name, dba = display_name(years[hist[-1]["key"]]["rec"], meta)
         n_filings += len(hist)
         major = (meta.get("ntee") or "Z")[:1].upper()
         if major not in CATEGORIES:
@@ -227,8 +243,7 @@ def main():
             "formation_year": latest.get("formation_year"), "group_return": latest.get("group_return", False),
             "mission": latest.get("mission", ""),
             "latest": {k: v for k, v in latest.items() if k not in ("name", "name2", "v")},
-            "latest_oid": years[latest_ty]["oid"], "latest_src": years[latest_ty]["src"],
-            "years": hist, "m": metrics(latest),
+            "cur": cur, "years": hist, "m": metrics(latest),
         }
         if ein in whofunds:
             rec["whofunds"] = whofunds[ein]
@@ -258,8 +273,9 @@ def main():
     stats = {
         "built": today, "charities": len(charities), "filings": n_filings,
         "with_functional": sum(1 for c in charities if "program_share" in c["m"]),
-        "latest_years": {str(y): sum(1 for c in charities if c["years"][-1]["ty"] == y)
-                         for y in sorted({c["years"][-1]["ty"] for c in charities})},
+        "latest_years": {str(y): sum(1 for c in charities if c["cur"]["ty"] == y)
+                         for y in sorted({c["cur"]["ty"] for c in charities})},
+        "short_periods": sum(1 for c in charities for h in c["years"] if h["months"] and h["months"] < 11),
         "total_contributions": sum(contrib(c) for c in charities),
         "total_revenue": sum(c["latest"].get("rev_total") or 0 for c in charities),
         "total_expenses": sum(c["latest"].get("exp_total") or 0 for c in charities),
