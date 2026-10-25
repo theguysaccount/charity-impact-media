@@ -2,8 +2,8 @@
 
 **Works:**
 - Live on GitHub Pages: 25,343 charity pages (where $100 went and came from, scorecard with cause medians, pay by role, programs, governance answers, contractors, up to 7 filings of history, sources), causes, states, A–Z, compare, embed widget, 13 guides, CSV, feed, sitemap. Every figure cites its filing; every page has correction and right-of-reply links.
-- Data: 149,983 Form 990 filings (TY2019–TY2025) from the GivingTuesday data lake plus 8,103 straight from IRS monthly zips by HTTP range request, including the IRS's Deflate64 zip the lake couldn't read. Zero fetch failures.
-- Machine loop: weekly incremental refresh with a guard, deploy with IndexNow (25,297 URLs accepted), daily live health check with reply sync, Sunday live-source self-test, keep-alive on every scheduled workflow. 36 tests (2 live). Refresh, deploy and health all verified green on GitHub runners.
+- Data: 149,983 Form 990 filings (TY2019–TY2025): 141,934 from the GivingTuesday data lake and 8,049 read straight out of the IRS monthly zips by HTTP range request, including the IRS's Deflate64 zip the lake couldn't read. Zero fetch failures.
+- Machine loop: weekly incremental refresh with a guard, deploy with IndexNow (25,297 URLs accepted), daily live health check with reply sync, Sunday live-source self-test, keep-alive on every scheduled workflow. 34 tests (2 of them hit the live sources). Refresh, deploy and health all verified green on GitHub runners.
 
 **Origin:** idea-only (one paragraph in a 2023 brainstorm). Built from scratch; IRS ingestion approach and person-name lists reused from WHOFUNDS.
 
