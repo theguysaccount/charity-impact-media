@@ -83,7 +83,7 @@ def home(ctx, stats, top, cats, states, guides):
 
 
 def category_index(ctx, cats):
-    body = ('<h1>Charities by cause</h1><p class="lede">Causes follow the IRS\'s National Taxonomy of Exempt Entities (NTEE) code for each organization.</p>'
+    body = ('<h1>Charities by cause</h1><p class="lede">Causes follow the IRS\'s National Taxonomy of Exempt Entities (NTEE) code for each organization. Where the IRS has no code, the filing\'s own answers (operates a hospital or a school) or an unambiguous name ("food bank", "museum") decide; the rest are unclassified.</p>'
             '<ul class="tiles">' + "".join(f'<li><a href="{ctx.u(f"/category/{slug}/")}">{esc(label)}<small>{cnt:,} charities</small></a></li>'
                                            for slug, label, cnt in cats) + "</ul>")
     return layout(ctx, title="US charities by cause: where the money goes", description="Browse Form 990 spending breakdowns of US charities by cause.",

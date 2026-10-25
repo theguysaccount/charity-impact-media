@@ -81,6 +81,26 @@ STATE_NAMES = {
 }
 
 
+NAME_CATEGORIES = [
+    ("T", r"\bCOMMUNITY FOUNDATION\b|\bUNITED WAY\b|\bJEWISH FEDERATION\b"),
+    ("E", r"\bHOSPITALS?\b|\bMEDICAL CENTER\b|\bHEALTH ?CARE\b|\bHEALTH SYSTEMS?\b|\bCLINICS?\b|\bHOSPICE\b"),
+    ("B", r"\bUNIVERSITY\b|\bCOLLEGE\b|\bSCHOOLS?\b|\bACADEMY\b|\bCHARTER\b"),
+    ("A", r"\bMUSEUM\b|\bSYMPHONY\b|\bORCHESTRA\b|\bTHEAT(?:ER|RE)\b|\bOPERA\b|\bBALLET\b|\bPUBLIC RADIO\b|\bPUBLIC MEDIA\b"),
+    ("K", r"\bFOOD ?BANK\b|\bFOOD PANTRY\b"),
+    ("L", r"\bHABITAT FOR HUMANITY\b|\bHOUSING\b"),
+    ("D", r"\bHUMANE SOCIETY\b|\bSPCA\b|\bANIMAL\b|\bZOO(?:LOGICAL)?\b"),
+    ("C", r"\bCONSERVANCY\b|\bLAND TRUST\b|\bAUDUBON\b"),
+]
+
+
+def name_category(name):
+    u = ascii_upper(name)
+    for code, pat in NAME_CATEGORIES:
+        if re.search(pat, u):
+            return code
+    return "Z"
+
+
 def share(a, b):
     if a is None or not b or b <= 0:
         return None
@@ -253,6 +273,9 @@ def main():
         major = (meta.get("ntee") or "Z")[:1].upper()
         if major not in CATEGORIES:
             major = "Z"
+        if major == "Z":  # no NTEE code in the BMF: the filing's own Part IV answers, then unambiguous name words
+            f = latest.get("f") or {}
+            major = "E" if f.get("hospital") else "B" if f.get("school") else name_category(name)
         state = latest.get("state") or meta.get("state") or ""
         rec = {
             "ein": ein, "name": name, "dba": dba, "legal_name": " ".join((latest.get("name") or "").split()),
