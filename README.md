@@ -61,6 +61,7 @@ mkdir -p /tmp/serve && ln -sfn "$PWD/dist" /tmp/serve/charity-impact-media && py
 ```bash
 python3 -m unittest discover -s tests -v              # parser, privacy, measures, Deflate64, guard, full site build + content rules
 CIM_LIVE=1 python3 -m unittest tests.test_live -v     # parse the newest filing from each live source
+node scripts/screens.mjs <site url>                   # screenshots at 1280px and a real 390px mobile viewport -> docs/screens/
 ```
 
 ## Content rules (enforced in code and tests)

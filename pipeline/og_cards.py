@@ -23,6 +23,8 @@ SERIES = ["#2a78d6", "#eb6834", "#1baf7a"]
 ACCENT = "#1c5cab"
 FONT_DIRS = [
     ("/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", "/usr/share/fonts/truetype/dejavu/DejaVuSans-Bold.ttf"),
+    ("/usr/share/fonts/truetype/liberation/LiberationSans-Regular.ttf", "/usr/share/fonts/truetype/liberation/LiberationSans-Bold.ttf"),
+    ("/usr/share/fonts/truetype/noto/NotoSans-Regular.ttf", "/usr/share/fonts/truetype/noto/NotoSans-Bold.ttf"),
     ("/System/Library/Fonts/Supplemental/Arial.ttf", "/System/Library/Fonts/Supplemental/Arial Bold.ttf"),
     ("/Library/Fonts/Arial.ttf", "/Library/Fonts/Arial Bold.ttf"),
 ]
@@ -32,7 +34,8 @@ def fonts(ImageFont):
     for reg, bold in FONT_DIRS:
         if os.path.exists(reg) and os.path.exists(bold):
             return lambda size, b=False: ImageFont.truetype(bold if b else reg, size)
-    return lambda size, b=False: ImageFont.load_default()
+    print("no TrueType font found: share cards use Pillow's built-in font", file=sys.stderr)
+    return lambda size, b=False: ImageFont.load_default(size)  # Pillow >= 10.1 scales its built-in font
 
 
 def wrap(draw, text, font, width, max_lines):
