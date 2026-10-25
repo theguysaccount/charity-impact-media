@@ -136,6 +136,17 @@ class MetricsTest(unittest.TestCase):
         self.assertEqual(build_data.months(picked["202512"]["rec"]), 6)
         self.assertEqual(render.period({"ty": 2024, "period_end": "2025-12-31", "months": 6})[1], "FY2025 (6 mo.)")
 
+    def test_display_names(self):
+        cases = {("MASS GENERAL BRIGHAM INCORPORATED &", "AFFILIATES"): "Mass General Brigham Incorporated & Affiliates",
+                 ("AMERICAN LEBANESE SYRIAN ASSOCIATED", "CHARITIES INC"): "American Lebanese Syrian Associated Charities",
+                 ("SMITH FAMILY FOUNDATION", "C/O JOHN SMITH"): "Smith Family Foundation",
+                 ("EXAMPLE FUND INC", "JOHN SMITH TTEE"): "Example Fund",
+                 ("HELPING HANDS INC", "JANE DOE"): "Helping Hands"}
+        for (n1, n2), want in cases.items():
+            self.assertEqual(build_data.display_name({"name": n1, "name2": n2}, {})[0], want)
+        self.assertEqual(build_data.display_name({"name": "YMCA OF GREATER BOSTON", "name2": "DBA YMCA BOSTON"}, {}),
+                         ("YMCA of Greater Boston", "YMCA Boston"))
+
     def test_text_cleanup(self):
         self.assertEqual(render.useful_text("Food Procurement - See Schedule O"), "Food Procurement")
         self.assertEqual(render.useful_text("SEE SCHEDULE O"), "")

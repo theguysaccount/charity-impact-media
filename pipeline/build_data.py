@@ -23,7 +23,7 @@ import sys
 from collections import defaultdict
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from common import WORK, ascii_upper, nice_name, read_json, write_json  # noqa: E402
+from common import WORK, ascii_upper, nice_name, person_like, read_json, write_json  # noqa: E402
 
 CATEGORIES = {
     "A": ("arts-culture-humanities", "Arts, culture & humanities"),
@@ -87,18 +87,38 @@ def share(a, b):
     return a / b
 
 
+NAME2_SKIP = re.compile(r"^\(?\s*(?:AKA|A/K/A|FKA|F/K/A|NKA|N/K/A|FORMERLY|C/O|C/0|ATTN|ATTENTION|CARE OF|%)(?:\b|\s|$)")
+NAME2_DBA = re.compile(r"^(?:DBA|D/B/A|D B A)\b\s*:?\s*")
+NAME2_AGENT = re.compile(r"\b(?:TRUSTEES?|TTEES?|BANK|N\.?A\.?|WEALTH|ADVISORS?|LLP|CPAS?|ESQ|EXECUTORS?|ATTORNEYS?)\b")
+ENTITY_END = re.compile(r"\b(?:INC|INCORPORATED|CORP|CORPORATION|FOUNDATION|FUND|TRUST|ASSOCIATION|SOCIETY|INSTITUTE|LLC|LTD|NFP|COMPANY|CO)\.?$")
+NAME2_CONTINUES = re.compile(r"^(?:FOR|OF|AND|&|IN|TO|ON|AT|THE|INC|INCORPORATED|CORP|CORPORATION|FOUNDATION|FUND|CHARITIES|SOCIETY|"
+                             r"ASSOCIATION|CENTER|HOSPITAL|UNIVERSITY|AFFILIATES|COLLEGE|JUNIOR|SYSTEM|HEALTH|SERVICES)\b")
+
+
 def display_name(rec, cov):
+    """The filer's own name for display. The e-file splits long names across two lines
+    ("AMERICAN LEBANESE SYRIAN ASSOCIATED" / "CHARITIES INC"); line 2 also carries care-of
+    contacts, trustees, aliases and "DBA" names, which are not joined."""
     n1 = " ".join((rec.get("name") or "").split())
     n2 = " ".join((rec.get("name2") or "").split())
     dba = rec.get("dba") or ""
-    u2 = ascii_upper(n2)
-    if n2 and re.match(r"^(DBA|D/B/A|D B A)\b", u2):
-        dba = dba or re.sub(r"^(DBA|D/B/A|D B A)\s*:?\s*", "", n2, flags=re.I)
-    elif n2 and not re.match(r"^(C/O|C/0|CO |ATTN|%|IN CARE OF|AKA|FKA|F/K/A|A/K/A)", u2) and \
-            re.match(r"^(OF|AND|&|FOR|THE|IN|AT|INC|INCORPORATED|FOUNDATION|FUND|SOCIETY|ASSOCIATION|CENTER|HOSPITAL|UNIVERSITY)\b", u2):
-        n1 = f"{n1} {n2}"
-    name = nice_name(n1 or cov.get("index_name") or cov.get("bmf_name", ""))
-    name = re.sub(r"\s+(Inc|Incorporated|INC|INCORPORATED)\.?$", "", name).rstrip(" ,")
+    u1, u2 = ascii_upper(n1), ascii_upper(n2)
+    if n2 and NAME2_DBA.match(u2):
+        dba = dba or NAME2_DBA.sub("", n2)
+    elif n2 and u2 != u1 and not NAME2_SKIP.match(u2) and not NAME2_AGENT.search(u2) and not person_like(n2):
+        if re.search(r"(?:&|\bAND|\bOF|\bFOR|\bTHE|-|,)$", u1) or not ENTITY_END.search(u1) or NAME2_CONTINUES.match(u2):
+            n1 = f"{n1} {n2}"
+    cut = re.compile(r"(?:&|\bAND|\bOF|\bFOR|\bTHE ?\w{0,2}|-|,)$")
+    if not n1 or cut.search(ascii_upper(n1)):
+        # Line 1 ends mid-name and line 2 didn't continue it: the data-lake index or the BMF
+        # often has the whole name.
+        for alt in (cov.get("index_name") or "", cov.get("bmf_name") or ""):
+            if len(alt) > len(n1) and not cut.search(ascii_upper(alt.strip())):
+                n1 = alt
+                break
+    name = nice_name(n1)
+    name = re.sub(r"^(.*?),?\s+(Inc\.?|Incorporated)?,?\s*\b[Tt]he$", r"The \1", name)  # "CARTER CENTER INC THE"
+    name = re.sub(r",?\s+(Inc|Incorporated|INC|INCORPORATED)\.?$", "", name).rstrip(" ,&")
     return name, nice_name(dba) if dba else ""
 
 

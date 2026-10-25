@@ -11,7 +11,7 @@ def row_list(ctx, items, show_rank=True):
     out = []
     for c in items:
         m = c["m"]
-        bits = [f'{esc(c["city"])}, {esc(c["state"])}', f'contributions {esc(usd(c["latest"].get("contributions")))}',
+        bits = [f'{esc(c["city"])}, {esc(c["state"])}', f'donations {esc(usd((c["latest"].get("contributions") or 0) - (c["latest"].get("gov_grants") or 0)))}',
                 f'revenue {esc(usd(c["latest"].get("rev_total")))}']
         if "program_share" in m:
             p, mg, f = hundred_split([m["program_share"], m["mgmt_share"], m["fund_share"]])
@@ -57,7 +57,7 @@ def home(ctx, stats, top, cats, states, guides):
             f'<p class="src">Covers every US 501(c)(3) public charity with $10 million or more in revenue on its latest Form 990. '
             f'<a href="{ctx.u("/guides/givingtuesday-checklist/")}">Giving on GivingTuesday? A five-minute filing check</a>.</p></section>'
             f'<section class="card"><h2>Where $100 went at the charities that raise the most</h2>'
-            f'<span class="cap">Ranked by contributions and grants on each one\'s latest Form 990, leaving out grantmakers and donor-advised fund sponsors. Size isn\'t a recommendation.</span>'
+            f'<span class="cap">Ranked by contributions excluding government grants on each one\'s latest Form 990, leaving out grantmakers and donor-advised fund sponsors. Size isn\'t a recommendation.</span>'
             f'{row_list(ctx, top)}<p class="ctx"><a href="{ctx.u("/guides/largest-charities/")}">The 100 charities that raised the most</a> · '
             f'<a href="{ctx.u("/charities/")}">All {n:,} charities A–Z</a></p></section>'
             f'<section class="card"><h2>Browse by cause</h2><ul class="tiles">' + "".join(

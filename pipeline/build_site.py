@@ -87,6 +87,12 @@ def load_guides():
     return out
 
 
+def private_contrib(c):
+    """Contributions excluding government grants (Part VIII line 1h minus 1e): what donors give."""
+    L = c["latest"]
+    return (L.get("contributions") or 0) - (L.get("gov_grants") or 0)
+
+
 def az_key(name):
     s = re.sub(r"^(the|a|an)\s+", "", name.strip(), flags=re.I)
     ch = (s[:1] or "0").lower()
@@ -251,7 +257,8 @@ def main():
         L = c["latest"]
         passthrough = (L.get("f") or {}).get("daf") and (L.get("grants_paid") or 0) > 0.6 * (L.get("exp_total") or 1)
         return c["cat"] != "T" and not passthrough
-    write(os.path.join(out, "index.html"), P.home(ctx, stats, [c for c in charities if featured(c)][:12], cats, states, guides))
+    home_list = sorted((c for c in charities if featured(c)), key=lambda c: -private_contrib(c))[:12]
+    write(os.path.join(out, "index.html"), P.home(ctx, stats, home_list, cats, states, guides))
     write(os.path.join(out, "method", "index.html"), P.method_page(ctx, stats))
     write(os.path.join(out, "about", "index.html"), P.about_page(ctx, stats))
     write(os.path.join(out, "corrections", "index.html"), P.corrections_page(ctx, replies))
@@ -321,8 +328,12 @@ def guide_data(ctx, charities, stats):
             return f"{v:.1f}"
         return str(v)
 
+    by_private = sorted(charities, key=lambda c: -private_contrib(c))
+
     def top_contrib(_a, n):
-        return P.table(ctx, charities[:n], [("#", lambda c: str(c["rank"]), True)] + P.std_cols(ctx))
+        return P.table(ctx, by_private[:n], [("#", lambda c: str(by_private.index(c) + 1), True),
+                                             ("Charity", P.name_cell(ctx), False),
+                                             ("Donations", lambda c: R.esc(R.usd(private_contrib(c))), True)] + P.std_cols(ctx)[1:])
 
     def top_comp(_a, n):
         lst = sorted([c for c in charities[:100] if "top_comp" in c["m"]], key=lambda c: -c["m"]["top_comp"])[:n]
