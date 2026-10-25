@@ -350,7 +350,7 @@ def scorecard_rows(c):
                 val = ref(ty, esc(f"{m.get('board_independent') or 0} of {m['board_voting']}"))
         med = esc(fmt(peer[key])) if key in peer else "—"
         out.append(f'<tr><td>{esc(label)}<br><span class="src">{esc(FORM_LINES[key])}</span></td><td class="r">{val}</td><td class="r">{med}</td></tr>')
-    return (f'<table class="tbl"><caption class="cap" style="caption-side:top;text-align:left">{esc(lab)} filing. '
+    return (f'<table class="tbl"><caption>{esc(lab)} filing. '
             f'Median across {peer.get("n", 0):,} covered charities in {esc(scope)}, from their latest filings.</caption>'
             f'<thead><tr><th scope="col">Measure</th><th scope="col" class="r">{esc(lab)}</th><th scope="col" class="r">Median</th></tr></thead>'
             f'<tbody>{"".join(out)}</tbody></table>')
@@ -471,7 +471,7 @@ def charity_page(ctx, c, similar, og_image=None, slim=False):
             items.append(f'<div class="prog"><strong>{ref(ty, esc(usd(p.get("exp"))))}</strong> <span class="src">expenses{sh}'
                          + (f' · grants {ref(ty, esc(usd(p["grants"])))}' if p.get("grants") else "")
                          + (f' · revenue {ref(ty, esc(usd(p["rev"])))}' if p.get("rev") else "")
-                         + f'</span><p>{esc(clip(sentence_case(useful_text(p.get("desc")) or "No description in Part III; see the filing."), 600))}</p></div>')
+                         + f'</span><p>{esc(clip(sentence_case(useful_text(p.get("desc")) or "No description in Part III; see the filing.", c["legal_name"]), 600))}</p></div>')
         oth = L.get("programs_other_exp")
         if oth:
             items.append(f'<div class="prog"><strong>{ref(ty, esc(usd(oth)))}</strong> <span class="src">all other programs (line 4d)</span></div>')
@@ -592,7 +592,7 @@ def charity_page(ctx, c, similar, og_image=None, slim=False):
         "taxID": ein_dash(ein), "nonprofitStatus": "Nonprofit501c3", "url": normalize_url(c.get("website")) or ctx.abs(url[len(ctx.base):]),
         "address": {"@type": "PostalAddress", "addressLocality": c["city"], "addressRegion": c["state"], "addressCountry": "US"},
         **({"foundingDate": str(c["formation_year"])} if c.get("formation_year") else {}),
-        **({"description": sentence_case(useful_text(c["mission"]))} if useful_text(c.get("mission")) else {}),
+        **({"description": sentence_case(useful_text(c["mission"]), c["legal_name"])} if useful_text(c.get("mission")) else {}),
         **({"numberOfEmployees": {"@type": "QuantitativeValue", "value": L["employees"]}} if L.get("employees") else {}),
     }, {
         "@context": "https://schema.org", "@type": "BreadcrumbList", "itemListElement": [
@@ -641,8 +641,9 @@ def short(name, n=34):
     return name if len(name) <= n else name[:n].rsplit(" ", 1)[0] + "…"
 
 
-def sentence_case(s):
-    """Filed text is often all caps; make it readable without changing its words."""
+def sentence_case(s, name=""):
+    """Filed text is often all caps; make it readable without changing its words. Runs of two
+    or more words from the organization's own name keep capitals ("the American Red Cross")."""
     s = " ".join((s or "").split())
     if not s or re.search(r"[a-z]", s):
         return s
@@ -651,6 +652,11 @@ def sentence_case(s):
     t = re.sub(r"\bi\b", "I", t)
     t = re.sub(r"\b(u\.?s\.?a?|usa|covid|hiv|aids|ymca|ywca|unicef|fy\d\d|fy|ceo|cfo|irs|stem|lgbtq?\+?|nfl|nba)\b",
                lambda mm: mm.group(0).upper(), t)
+    words = {w for w in re.findall(r"[a-z]+", (name or "").lower()) if len(w) > 2 and w not in ("the", "and", "for", "inc")}
+    if words:
+        pat = r"\b(?:%s)(?:\s+(?:of\s+|and\s+|&\s+)?(?:%s))+\b" % ("|".join(map(re.escape, sorted(words))), "|".join(map(re.escape, sorted(words))))
+        t = re.sub(pat, lambda mm: " ".join(w if w.lower() in ("of", "and", "&") else w[:1].upper() + w[1:] for w in mm.group(0).split()), t,
+                   flags=re.I)
     return t
 
 

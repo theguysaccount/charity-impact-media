@@ -53,6 +53,7 @@ main a[href^="#f"]:hover{text-decoration-color:var(--accent);color:var(--accent)
 .tbl th{font-size:13px;font-weight:600;color:var(--muted)}
 .tbl td.r,.tbl th.r{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
 .tbl tr:last-child td{border-bottom:0}
+.tbl caption{caption-side:top;text-align:left;font-size:13px;color:var(--muted);padding:0 0 10px}
 .scroll{overflow-x:auto;-webkit-overflow-scrolling:touch}
 .src{font-size:13px;color:var(--muted)}
 .facts{list-style:none;margin:0;padding:0;display:grid;gap:4px;font-size:15px}
